@@ -40,16 +40,28 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // --- Types ---
-interface GoldPriceData {
+interface PricePoint {
   date: string;
   price: number;
 }
 
+interface AssetPriceData {
+  currentPrice: number;
+  history: PricePoint[];
+}
+
+interface PricesState {
+  gold: AssetPriceData;
+  silver: AssetPriceData;
+  crypto: AssetPriceData;
+}
+
 interface Investment {
   id: string;
+  assetType: 'gold' | 'silver' | 'crypto';
   name: string;
-  weightGrams: number;
-  purchasePricePerGram: number;
+  quantity: number;
+  purchasePrice: number;
   purchaseDate: string;
 }
 
@@ -62,14 +74,19 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
-  const [currentPrice, setCurrentPrice] = useState(0);
-  const [priceHistory, setPriceHistory] = useState<GoldPriceData[]>([]);
+  const [prices, setPrices] = useState<PricesState>({
+    gold: { currentPrice: 0, history: [] },
+    silver: { currentPrice: 0, history: [] },
+    crypto: { currentPrice: 0, history: [] }
+  });
+  const [selectedChartAsset, setSelectedChartAsset] = useState<'gold' | 'silver' | 'crypto'>('gold');
   const [isLoading, setIsLoading] = useState(true);
   const [investments, setInvestments] = useState<Investment[]>([]);
 
   // New Investment Form State
+  const [newAssetType, setNewAssetType] = useState<'gold' | 'silver' | 'crypto'>('gold');
   const [newName, setNewName] = useState('');
-  const [newWeight, setNewWeight] = useState('');
+  const [newQuantity, setNewQuantity] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newDate, setNewDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
@@ -77,13 +94,12 @@ export default function App() {
   useEffect(() => {
     const fetchPriceData = async () => {
       try {
-        const response = await fetch('/api/gold-price');
-        if (!response.ok) throw new Error('Failed to fetch price');
+        const response = await fetch('/api/prices');
+        if (!response.ok) throw new Error('Failed to fetch prices');
         const data = await response.json();
-        setCurrentPrice(data.currentPrice);
-        setPriceHistory(data.history);
+        setPrices(data);
       } catch (error) {
-        console.error('Error fetching gold price:', error);
+        console.error('Error fetching prices:', error);
       }
     };
 
@@ -116,18 +132,22 @@ export default function App() {
   }, [token]);
 
   // Derived State
-  const totalWeight = useMemo(() => investments.reduce((sum, inv) => sum + inv.weightGrams, 0), [investments]);
-  const totalInvested = useMemo(() => investments.reduce((sum, inv) => sum + (inv.weightGrams * inv.purchasePricePerGram), 0), [investments]);
-  const currentValue = useMemo(() => totalWeight * currentPrice, [totalWeight, currentPrice]);
+  const totalInvested = useMemo(() => investments.reduce((sum, inv) => sum + (inv.quantity * inv.purchasePrice), 0), [investments]);
+  const currentValue = useMemo(() => investments.reduce((sum, inv) => {
+    const currentAssetPrice = prices[inv.assetType]?.currentPrice || 0;
+    return sum + (inv.quantity * currentAssetPrice);
+  }, 0), [investments, prices]);
+  
   const totalProfitLoss = currentValue - totalInvested;
   const profitLossPercentage = totalInvested > 0 ? (totalProfitLoss / totalInvested) * 100 : 0;
 
-  const priceChange24h = priceHistory.length >= 2 ? currentPrice - priceHistory[priceHistory.length - 2].price : 0;
-  const priceChange24hPercent = priceHistory.length >= 2 ? (priceChange24h / priceHistory[priceHistory.length - 2].price) * 100 : 0;
+  const activeChartData = prices[selectedChartAsset];
+  const priceChange24h = activeChartData.history.length >= 2 ? activeChartData.currentPrice - activeChartData.history[activeChartData.history.length - 2].price : 0;
+  const priceChange24hPercent = activeChartData.history.length >= 2 ? (priceChange24h / activeChartData.history[activeChartData.history.length - 2].price) * 100 : 0;
 
   const handleAddInvestment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newWeight || !newPrice || !newDate || !token) return;
+    if (!newName || !newQuantity || !newPrice || !newDate || !token) return;
 
     try {
       const response = await fetch('/api/investments', {
@@ -137,9 +157,10 @@ export default function App() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
+          assetType: newAssetType,
           name: newName,
-          weightGrams: parseFloat(newWeight),
-          purchasePricePerGram: parseFloat(newPrice),
+          quantity: parseFloat(newQuantity),
+          purchasePrice: parseFloat(newPrice),
           purchaseDate: newDate,
         }),
       });
@@ -150,7 +171,7 @@ export default function App() {
       setInvestments([newInv, ...investments]);
       
       setNewName('');
-      setNewWeight('');
+      setNewQuantity('');
       setNewPrice('');
       setNewDate(format(new Date(), 'yyyy-MM-dd'));
     } catch (error) {
@@ -298,16 +319,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-6">
             <div className="text-right">
-              <div className="text-sm text-gray-500 font-medium uppercase tracking-wider">Live Price (1g)</div>
+              <div className="text-sm text-gray-500 font-medium uppercase tracking-wider">Total Value</div>
               <div className="text-lg font-bold flex items-center justify-end gap-1">
-                ₹{currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                <span className={cn(
-                  "text-sm font-medium flex items-center",
-                  priceChange24h >= 0 ? "text-emerald-600" : "text-rose-600"
-                )}>
-                  {priceChange24h >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                  {Math.abs(priceChange24hPercent).toFixed(2)}%
-                </span>
+                ₹{currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             <button 
@@ -328,7 +342,7 @@ export default function App() {
           <StatCard 
             title="Total Portfolio Value" 
             value={`₹${currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            subtitle={`${totalWeight.toFixed(2)}g Total Holdings`}
+            subtitle={`${investments.length} Assets Tracked`}
             icon={<Briefcase className="text-blue-500" size={24} />}
           />
           <StatCard 
@@ -339,9 +353,9 @@ export default function App() {
             icon={totalProfitLoss >= 0 ? <TrendingUp className="text-emerald-500" size={24} /> : <TrendingDown className="text-rose-500" size={24} />}
           />
           <StatCard 
-            title="Average Buy Price" 
-            value={`₹${totalWeight > 0 ? (totalInvested / totalWeight).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}`}
-            subtitle="Per Gram"
+            title="Total Invested" 
+            value={`₹${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            subtitle="Principal Amount"
             icon={<IndianRupee className="text-amber-500" size={24} />}
           />
         </div>
@@ -352,19 +366,39 @@ export default function App() {
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <ChartIcon size={20} className="text-gray-400" />
-                  Price Trend (30 Days)
-                </h2>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <ChartIcon size={20} className="text-gray-400" />
+                    Price Trend (30 Days)
+                  </h2>
+                  <select 
+                    value={selectedChartAsset}
+                    onChange={e => setSelectedChartAsset(e.target.value as any)}
+                    className="text-sm border-gray-200 rounded-md focus:ring-amber-400 focus:border-amber-400"
+                  >
+                    <option value="gold">Gold (per g)</option>
+                    <option value="silver">Silver (per g)</option>
+                    <option value="crypto">Bitcoin</option>
+                  </select>
+                </div>
                 <div className="flex gap-2">
-                  <span className="px-3 py-1 bg-gray-100 text-xs font-medium rounded-full text-gray-600">1M</span>
-                  <span className="px-3 py-1 text-xs font-medium rounded-full text-gray-400 cursor-not-allowed">3M</span>
-                  <span className="px-3 py-1 text-xs font-medium rounded-full text-gray-400 cursor-not-allowed">1Y</span>
+                  <div className="text-right mr-4">
+                    <div className="text-lg font-bold flex items-center justify-end gap-1">
+                      ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className={cn(
+                        "text-sm font-medium flex items-center",
+                        priceChange24h >= 0 ? "text-emerald-600" : "text-rose-600"
+                      )}>
+                        {priceChange24h >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                        {Math.abs(priceChange24hPercent).toFixed(2)}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={priceHistory} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                  <AreaChart data={activeChartData.history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
@@ -412,10 +446,7 @@ export default function App() {
                 </h2>
                 <div className="space-y-4">
                   <div className="p-4 bg-blue-50 rounded-xl text-blue-800 text-sm">
-                    <strong>Trend Analysis:</strong> Gold prices have shown a {priceHistory.length > 0 && priceHistory[0].price < currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price of ₹{currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is {currentPrice > (totalInvested/totalWeight) ? 'above' : 'below'} your average purchase price.
-                  </div>
-                  <div className="p-4 bg-amber-50 rounded-xl text-amber-800 text-sm">
-                    <strong>Recommendation:</strong> {currentPrice > (totalInvested/totalWeight) * 1.05 ? 'Your portfolio is up significantly. Consider taking partial profits if you need liquidity.' : 'Prices are relatively stable. Good time to hold or accumulate if you are investing long-term.'}
+                    <strong>{selectedChartAsset.charAt(0).toUpperCase() + selectedChartAsset.slice(1)} Trend:</strong> Prices have shown a {activeChartData.history.length > 0 && activeChartData.history[0].price < activeChartData.currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price is ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </div>
                 </div>
             </div>
@@ -429,6 +460,18 @@ export default function App() {
               <h2 className="text-lg font-semibold mb-4">Add Investment</h2>
               <form onSubmit={handleAddInvestment} className="space-y-4">
                 <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Asset Type</label>
+                  <select 
+                    value={newAssetType}
+                    onChange={e => setNewAssetType(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent text-sm"
+                  >
+                    <option value="gold">Gold</option>
+                    <option value="silver">Silver</option>
+                    <option value="crypto">Bitcoin</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Asset Name</label>
                   <input 
                     type="text" 
@@ -441,24 +484,24 @@ export default function App() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Weight (g)</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Quantity</label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <Scale size={14} className="text-gray-400" />
                       </div>
                       <input 
                         type="number" 
-                        step="0.01"
+                        step="0.000001"
                         required
-                        value={newWeight}
-                        onChange={e => setNewWeight(e.target.value)}
+                        value={newQuantity}
+                        onChange={e => setNewQuantity(e.target.value)}
                         placeholder="0.00"
                         className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent text-sm"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Price/g (₹)</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Price/Unit (₹)</label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <IndianRupee size={14} className="text-gray-400" />
@@ -510,10 +553,11 @@ export default function App() {
               ) : (
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
                   {investments.map(inv => {
-                    const currentValue = inv.weightGrams * currentPrice;
-                    const investedValue = inv.weightGrams * inv.purchasePricePerGram;
+                    const currentAssetPrice = prices[inv.assetType]?.currentPrice || 0;
+                    const currentValue = inv.quantity * currentAssetPrice;
+                    const investedValue = inv.quantity * inv.purchasePrice;
                     const profit = currentValue - investedValue;
-                    const profitPercent = (profit / investedValue) * 100;
+                    const profitPercent = investedValue > 0 ? (profit / investedValue) * 100 : 0;
 
                     return (
                       <div key={inv.id} className="p-4 border border-gray-100 rounded-xl hover:border-gray-200 transition-colors group relative bg-gray-50/50">
@@ -524,9 +568,14 @@ export default function App() {
                         >
                           <Trash2 size={16} />
                         </button>
-                        <div className="font-medium text-gray-900 mb-1 pr-6">{inv.name}</div>
+                        <div className="flex items-center gap-2 mb-1 pr-6">
+                          <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold uppercase rounded-sm">
+                            {inv.assetType}
+                          </span>
+                          <div className="font-medium text-gray-900">{inv.name}</div>
+                        </div>
                         <div className="flex justify-between text-sm text-gray-500 mb-3">
-                          <span>{inv.weightGrams}g @ ₹{inv.purchasePricePerGram.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span>{inv.quantity} {inv.assetType === 'crypto' ? 'BTC' : 'g'} @ ₹{inv.purchasePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           <span>{format(new Date(inv.purchaseDate), 'MMM dd, yyyy')}</span>
                         </div>
                         <div className="flex items-end justify-between pt-3 border-t border-gray-200/60">

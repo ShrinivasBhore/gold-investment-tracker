@@ -39,9 +39,10 @@ const User = mongoose.model('User', userSchema);
 
 const investmentSchema = new mongoose.Schema({
   userId: { type: String, required: true },
+  assetType: { type: String, required: true, default: 'gold' }, // 'gold', 'silver', 'crypto'
   name: { type: String, required: true },
-  weightGrams: { type: Number, required: true },
-  purchasePricePerGram: { type: Number, required: true },
+  quantity: { type: Number, required: true },
+  purchasePrice: { type: Number, required: true },
   purchaseDate: { type: String, required: true },
 }, { timestamps: true });
 
@@ -50,8 +51,8 @@ const Investment = mongoose.model('Investment', investmentSchema);
 // In-memory fallback storage
 let inMemoryUsers: any[] = [];
 let inMemoryInvestments = [
-  { id: '1', userId: 'default', name: '10g Gold Coin (24K)', weightGrams: 10, purchasePricePerGram: 6200.00, purchaseDate: '2025-11-15' },
-  { id: '2', userId: 'default', name: 'Gold Bar (1oz)', weightGrams: 31.1, purchasePricePerGram: 6000.00, purchaseDate: '2025-08-01' },
+  { id: '1', userId: 'default', assetType: 'gold', name: '10g Gold Coin (24K)', quantity: 10, purchasePrice: 6200.00, purchaseDate: '2025-11-15' },
+  { id: '2', userId: 'default', assetType: 'gold', name: 'Gold Bar (1oz)', quantity: 31.1, purchasePrice: 6000.00, purchaseDate: '2025-08-01' },
 ];
 
 // Auth middleware
@@ -70,9 +71,10 @@ const authMiddleware = (req: any, res: any, next: any) => {
 
 // --- Real-time Data Fetcher ---
 // Cache for API responses to avoid rate limits
-let cachedGoldData: { currentPrice: number, history: any[] } = {
-  currentPrice: 6500.00,
-  history: []
+let cachedAssetData: any = {
+  gold: { currentPrice: 6500.00, history: [] },
+  silver: { currentPrice: 80.00, history: [] },
+  crypto: { currentPrice: 5000000.00, history: [] }
 };
 let lastFetchTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -80,79 +82,102 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 // 1 Troy Ounce = 31.1034768 grams
 const TROY_OUNCE_TO_GRAMS = 31.1034768;
 
-async function fetchRealGoldPrice() {
+async function fetchAssetPrices() {
   try {
     const now = Date.now();
     // Return cached data if within duration and we have history
-    if (now - lastFetchTime < CACHE_DURATION && cachedGoldData.history.length > 0) {
-      return cachedGoldData;
+    if (now - lastFetchTime < CACHE_DURATION && cachedAssetData.gold.history.length > 0) {
+      return cachedAssetData;
     }
 
-    console.log("Fetching fresh gold price data from Yahoo Finance...");
+    console.log("Fetching fresh asset price data from Yahoo Finance...");
 
     // Fetch current quotes
-    const goldQuote = await yahooFinance.quote('GC=F'); // Gold Futures (USD/oz)
-    const inrQuote = await yahooFinance.quote('INR=X'); // USD to INR
+    const [goldQuote, silverQuote, btcQuote, inrQuote] = await Promise.all([
+      yahooFinance.quote('GC=F').catch(() => null),
+      yahooFinance.quote('SI=F').catch(() => null),
+      yahooFinance.quote('BTC-USD').catch(() => null),
+      yahooFinance.quote('INR=X').catch(() => null)
+    ]);
 
-    if (!goldQuote || !inrQuote) throw new Error("Failed to fetch quotes");
+    const usdToInr = inrQuote?.regularMarketPrice || 83;
+    
+    const goldPriceUsd = goldQuote?.regularMarketPrice || 2000;
+    const silverPriceUsd = silverQuote?.regularMarketPrice || 25;
+    const btcPriceUsd = btcQuote?.regularMarketPrice || 60000;
 
-    const pricePerOunceUsd = goldQuote.regularMarketPrice || 2000;
-    const usdToInr = inrQuote.regularMarketPrice || 83;
-    const currentPriceInrPerGram = (pricePerOunceUsd / TROY_OUNCE_TO_GRAMS) * usdToInr;
+    const goldPriceInrPerGram = (goldPriceUsd / TROY_OUNCE_TO_GRAMS) * usdToInr;
+    const silverPriceInrPerGram = (silverPriceUsd / TROY_OUNCE_TO_GRAMS) * usdToInr;
+    const btcPriceInr = btcPriceUsd * usdToInr;
 
     // Fetch historical data (last 30 days)
     const period1 = new Date(now - 30 * 24 * 60 * 60 * 1000);
     const period2 = new Date(now);
     
-    const goldChart = await yahooFinance.chart('GC=F', { period1, period2, interval: '1d' });
-    const inrChart = await yahooFinance.chart('INR=X', { period1, period2, interval: '1d' });
-
-    const goldHist = goldChart.quotes;
-    const inrHist = inrChart.quotes;
+    const [goldChart, silverChart, btcChart, inrChart] = await Promise.all([
+      yahooFinance.chart('GC=F', { period1, period2, interval: '1d' }).catch(() => null),
+      yahooFinance.chart('SI=F', { period1, period2, interval: '1d' }).catch(() => null),
+      yahooFinance.chart('BTC-USD', { period1, period2, interval: '1d' }).catch(() => null),
+      yahooFinance.chart('INR=X', { period1, period2, interval: '1d' }).catch(() => null)
+    ]);
 
     // Create a map of INR rates by date for easy lookup
     const inrMap = new Map();
-    for (const row of inrHist) {
-      if (!row.date || !row.close) continue;
-      const dateStr = format(row.date, 'yyyy-MM-dd');
-      inrMap.set(dateStr, row.close);
+    if (inrChart?.quotes) {
+      for (const row of inrChart.quotes) {
+        if (!row.date || !row.close) continue;
+        inrMap.set(format(row.date, 'yyyy-MM-dd'), row.close);
+      }
     }
 
-    const history = [];
-    for (const row of goldHist) {
-      if (!row.date || !row.close) continue;
-      const dateStr = format(row.date, 'yyyy-MM-dd');
-      const inrRate = inrMap.get(dateStr) || usdToInr; // fallback to current if missing
-      
-      const priceInrPerGram = (row.close / TROY_OUNCE_TO_GRAMS) * inrRate;
-      
-      history.push({
-        date: format(row.date, 'MMM dd'),
-        price: Number(priceInrPerGram.toFixed(2))
-      });
-    }
+    const processHistory = (chart: any, isTroyOunce: boolean) => {
+      const history = [];
+      if (chart?.quotes) {
+        for (const row of chart.quotes) {
+          if (!row.date || !row.close) continue;
+          const dateStr = format(row.date, 'yyyy-MM-dd');
+          const inrRate = inrMap.get(dateStr) || usdToInr;
+          
+          let priceInr = row.close * inrRate;
+          if (isTroyOunce) {
+            priceInr = priceInr / TROY_OUNCE_TO_GRAMS;
+          }
+          
+          history.push({
+            date: format(row.date, 'MMM dd'),
+            price: Number(priceInr.toFixed(2))
+          });
+        }
+      }
+      return history;
+    };
+
+    const goldHistory = processHistory(goldChart, true);
+    const silverHistory = processHistory(silverChart, true);
+    const btcHistory = processHistory(btcChart, false);
 
     // Ensure the last point is the current live price
-    if (history.length > 0) {
-      history[history.length - 1].price = Number(currentPriceInrPerGram.toFixed(2));
-    }
+    if (goldHistory.length > 0) goldHistory[goldHistory.length - 1].price = Number(goldPriceInrPerGram.toFixed(2));
+    if (silverHistory.length > 0) silverHistory[silverHistory.length - 1].price = Number(silverPriceInrPerGram.toFixed(2));
+    if (btcHistory.length > 0) btcHistory[btcHistory.length - 1].price = Number(btcPriceInr.toFixed(2));
 
-    cachedGoldData = {
-      currentPrice: Number(currentPriceInrPerGram.toFixed(2)),
-      history
+    cachedAssetData = {
+      gold: { currentPrice: Number(goldPriceInrPerGram.toFixed(2)), history: goldHistory },
+      silver: { currentPrice: Number(silverPriceInrPerGram.toFixed(2)), history: silverHistory },
+      crypto: { currentPrice: Number(btcPriceInr.toFixed(2)), history: btcHistory }
     };
     lastFetchTime = now;
 
-    return cachedGoldData;
+    return cachedAssetData;
   } catch (error: any) {
-    console.error("Error fetching real gold price:", error);
+    console.error("Error fetching real asset prices:", error);
     // Return cached data or fallback
-    return cachedGoldData;
+    return cachedAssetData;
   }
 }
 
 // Initial fetch
-fetchRealGoldPrice();
+fetchAssetPrices();
 
 async function startServer() {
   const app = express();
@@ -219,9 +244,9 @@ async function startServer() {
     }
   });
 
-  // Get current gold price and 30-day history
-  app.get("/api/gold-price", async (req, res) => {
-    const data = await fetchRealGoldPrice();
+  // Get current asset prices and 30-day history
+  app.get("/api/prices", async (req, res) => {
+    const data = await fetchAssetPrices();
     res.json(data);
   });
 
@@ -230,14 +255,19 @@ async function startServer() {
     try {
       const userId = req.user.id;
       if (!isMongoConnected) {
-        return res.json(inMemoryInvestments.filter(inv => inv.userId === userId));
+        return res.json(inMemoryInvestments.filter(inv => inv.userId === userId).map(inv => ({
+          ...inv,
+          quantity: inv.quantity || (inv as any).weightGrams,
+          purchasePrice: inv.purchasePrice || (inv as any).purchasePricePerGram
+        })));
       }
       const investments = await Investment.find({ userId }).sort({ createdAt: -1 });
       res.json(investments.map(inv => ({
         id: inv._id.toString(),
+        assetType: inv.assetType || 'gold',
         name: inv.name,
-        weightGrams: inv.weightGrams,
-        purchasePricePerGram: inv.purchasePricePerGram,
+        quantity: inv.quantity || (inv as any).weightGrams,
+        purchasePrice: inv.purchasePrice || (inv as any).purchasePricePerGram,
         purchaseDate: inv.purchaseDate
       })));
     } catch (error) {
@@ -250,15 +280,16 @@ async function startServer() {
   app.post("/api/investments", authMiddleware, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { name, weightGrams, purchasePricePerGram, purchaseDate } = req.body;
+      const { assetType, name, quantity, purchasePrice, purchaseDate } = req.body;
       
       if (!isMongoConnected) {
         const newInv = {
           id: Date.now().toString(),
           userId,
+          assetType: assetType || 'gold',
           name,
-          weightGrams,
-          purchasePricePerGram,
+          quantity,
+          purchasePrice,
           purchaseDate
         };
         inMemoryInvestments.unshift(newInv);
@@ -267,17 +298,19 @@ async function startServer() {
 
       const newInvestment = new Investment({
         userId,
+        assetType: assetType || 'gold',
         name,
-        weightGrams,
-        purchasePricePerGram,
+        quantity,
+        purchasePrice,
         purchaseDate
       });
       await newInvestment.save();
       res.status(201).json({
         id: newInvestment._id.toString(),
+        assetType: newInvestment.assetType,
         name: newInvestment.name,
-        weightGrams: newInvestment.weightGrams,
-        purchasePricePerGram: newInvestment.purchasePricePerGram,
+        quantity: newInvestment.quantity,
+        purchasePrice: newInvestment.purchasePrice,
         purchaseDate: newInvestment.purchaseDate
       });
     } catch (error) {
