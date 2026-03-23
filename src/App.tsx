@@ -40,6 +40,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { motion, AnimatePresence } from 'motion/react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -87,6 +88,19 @@ interface Notification {
 }
 
 // --- Components ---
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
@@ -410,10 +424,15 @@ export default function App() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4 font-sans">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4 font-sans">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.5, type: "spring" }}
+          className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 w-full max-w-md"
+        >
           <div className="flex items-center justify-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center text-amber-900">
+            <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center text-amber-900 shadow-sm">
               <Activity size={24} />
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">Aura Gold</h1>
@@ -483,18 +502,18 @@ export default function App() {
               {authMode === 'login' ? 'Sign up' : 'Sign in'}
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5] font-sans text-gray-900 pb-12">
+    <div className="min-h-screen bg-slate-50 font-sans text-gray-900 pb-12">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center text-amber-900">
+            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center text-amber-900 shadow-sm">
               <Activity size={20} />
             </div>
             <h1 className="text-xl font-semibold tracking-tight">Aura Gold Tracker</h1>
@@ -574,13 +593,18 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8">
+      <motion.main 
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8"
+      >
         
         {fetchError && (
-          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-3">
+          <motion.div variants={itemVariants} className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-3 shadow-sm">
             <AlertCircle size={20} />
             <p className="font-medium text-sm">{fetchError}</p>
-          </div>
+          </motion.div>
         )}
 
         {/* Top Stats Row */}
@@ -623,7 +647,7 @@ export default function App() {
             {isLoading ? (
               <ChartSkeleton />
             ) : (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-4">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -695,11 +719,11 @@ export default function App() {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* Market Insights */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
                <div className="flex items-center justify-between mb-4">
                  <h2 className="text-lg font-semibold flex items-center gap-2">
                     <Sparkles size={20} className="text-amber-500" />
@@ -746,14 +770,14 @@ export default function App() {
                     </div>
                   )}
                   
-                  <div className="p-4 bg-blue-50 rounded-xl text-blue-800 text-sm mt-4">
+                  <div className="p-4 bg-blue-50/80 rounded-xl text-blue-800 text-sm mt-4 border border-blue-100">
                     <strong>{selectedChartAsset.charAt(0).toUpperCase() + selectedChartAsset.slice(1)} Trend:</strong> Prices have shown a {activeChartData.history.length > 0 && activeChartData.history[0].price < activeChartData.currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price is ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </div>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Price Alerts */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Bell size={20} className="text-amber-500" />
                 Price Alerts
@@ -800,11 +824,19 @@ export default function App() {
               </form>
 
               <div className="space-y-3">
+                <AnimatePresence mode="popLayout">
                 {alerts.length === 0 ? (
-                  <div className="text-center py-4 text-gray-500 text-sm">No active alerts.</div>
+                  <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="text-center py-4 text-gray-500 text-sm">No active alerts.</motion.div>
                 ) : (
                   alerts.map(alert => (
-                    <div key={alert.id} className={cn("flex items-center justify-between p-3 border rounded-xl", alert.isTriggered ? "bg-gray-50 border-gray-200 opacity-60" : "border-gray-100")}>
+                    <motion.div 
+                      key={alert.id} 
+                      layout
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={cn("flex items-center justify-between p-3 border rounded-xl transition-all duration-300", alert.isTriggered ? "bg-gray-50 border-gray-200 opacity-60" : "border-gray-100 hover:border-amber-200 hover:shadow-sm")}
+                    >
                       <div className="flex items-center gap-3">
                         <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold uppercase rounded-sm">
                           {alert.assetType}
@@ -820,18 +852,19 @@ export default function App() {
                       >
                         <Trash2 size={16} />
                       </button>
-                    </div>
+                    </motion.div>
                   ))
                 )}
+                </AnimatePresence>
               </div>
-            </div>
+            </motion.div>
           </div>
 
           {/* Sidebar: Portfolio Management */}
           <div className="space-y-6">
             
             {/* Add Investment Form */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
               <h2 className="text-lg font-semibold mb-4">Add Investment</h2>
               <form onSubmit={handleAddInvestment} className="space-y-4">
                 <div>
@@ -916,10 +949,10 @@ export default function App() {
                   Add to Portfolio
                 </button>
               </form>
-            </div>
+            </motion.div>
 
             {/* Holdings List */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
               <h2 className="text-lg font-semibold mb-4">Your Holdings</h2>
               {isLoading ? (
                 <HoldingsSkeleton />
@@ -929,6 +962,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                  <AnimatePresence mode="popLayout">
                   {investments.map(inv => {
                     const currentAssetPrice = prices[inv.assetType]?.currentPrice || 0;
                     const currentValue = inv.quantity * currentAssetPrice;
@@ -937,7 +971,14 @@ export default function App() {
                     const profitPercent = investedValue > 0 ? (profit / investedValue) * 100 : 0;
 
                     return (
-                      <div key={inv.id} className="p-4 border border-gray-100 rounded-xl hover:border-gray-200 transition-colors group relative bg-gray-50/50">
+                      <motion.div 
+                        key={inv.id} 
+                        layout
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="p-4 border border-gray-100 rounded-xl hover:border-amber-200 transition-colors group relative bg-white shadow-sm hover:shadow-md"
+                      >
                         <button 
                           onClick={() => handleDeleteInvestment(inv.id)}
                           className="absolute top-3 right-3 text-gray-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -946,7 +987,7 @@ export default function App() {
                           <Trash2 size={16} />
                         </button>
                         <div className="flex items-center gap-2 mb-1 pr-6">
-                          <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold uppercase rounded-sm">
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold uppercase rounded-sm">
                             {inv.assetType}
                           </span>
                           <div className="font-medium text-gray-900">{inv.name}</div>
@@ -971,16 +1012,17 @@ export default function App() {
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })}
+                  </AnimatePresence>
                 </div>
               )}
-            </div>
+            </motion.div>
 
           </div>
         </div>
-      </main>
+      </motion.main>
     </div>
   );
 }
@@ -989,16 +1031,16 @@ export default function App() {
 
 function StatCard({ title, value, subtitle, icon, valueColor = "text-gray-900" }: { title: string, value: string, subtitle: string, icon: React.ReactNode, valueColor?: string }) {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-start gap-4">
-      <div className="p-3 bg-gray-50 rounded-xl">
+    <motion.div variants={itemVariants} className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 flex items-start gap-4 group">
+      <div className="p-3 bg-gray-50 rounded-xl group-hover:scale-110 transition-transform duration-300">
         {icon}
       </div>
       <div>
         <h3 className="text-sm font-medium text-gray-500 mb-1">{title}</h3>
-        <div className={cn("text-2xl font-bold mb-1", valueColor)}>{value}</div>
+        <div className={cn("text-2xl font-bold mb-1 tracking-tight", valueColor)}>{value}</div>
         <p className="text-sm text-gray-400">{subtitle}</p>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1008,26 +1050,26 @@ function Skeleton({ className }: { className?: string }) {
 
 function StatCardSkeleton() {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-start gap-4">
+    <motion.div variants={itemVariants} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-start gap-4">
       <Skeleton className="w-12 h-12 rounded-xl" />
       <div className="space-y-2 flex-1">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-3 w-20" />
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 function ChartSkeleton() {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
+    <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
       <div className="flex justify-between mb-6">
         <Skeleton className="h-6 w-48" />
         <Skeleton className="h-8 w-32" />
       </div>
       <Skeleton className="flex-1 w-full rounded-xl" />
-    </div>
+    </motion.div>
   );
 }
 
@@ -1035,11 +1077,11 @@ function HoldingsSkeleton() {
   return (
     <div className="space-y-4">
       {[1, 2, 3].map(i => (
-        <div key={i} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 space-y-3">
+        <motion.div variants={itemVariants} key={i} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 space-y-3">
           <div className="flex gap-2"><Skeleton className="h-4 w-12" /><Skeleton className="h-4 w-32" /></div>
           <div className="flex justify-between"><Skeleton className="h-3 w-24" /><Skeleton className="h-3 w-20" /></div>
           <div className="flex justify-between pt-3 border-t border-gray-200/60"><Skeleton className="h-8 w-24" /><Skeleton className="h-8 w-24" /></div>
-        </div>
+        </motion.div>
       ))}
     </div>
   );
