@@ -50,28 +50,12 @@ interface Investment {
   purchaseDate: string;
 }
 
-// --- Mock Data Generator ---
-const generateHistoricalData = (days: number, basePrice: number): GoldPriceData[] => {
-  const data: GoldPriceData[] = [];
-  let currentPrice = basePrice;
-  for (let i = days; i >= 0; i--) {
-    const date = format(subDays(new Date(), i), 'MMM dd');
-    // Random walk with slight upward bias
-    const change = (Math.random() - 0.45) * 1.5;
-    currentPrice = currentPrice + change;
-    data.push({ date, price: Number(currentPrice.toFixed(2)) });
-  }
-  return data;
-};
-
-const INITIAL_PRICE_PER_GRAM = 76.50; // USD
-const HISTORICAL_DATA = generateHistoricalData(30, 74.00);
-
 // --- Components ---
 
 export default function App() {
-  const [currentPrice, setCurrentPrice] = useState(HISTORICAL_DATA[HISTORICAL_DATA.length - 1].price);
-  const [priceHistory, setPriceHistory] = useState<GoldPriceData[]>(HISTORICAL_DATA);
+  const [currentPrice, setCurrentPrice] = useState(0);
+  const [priceHistory, setPriceHistory] = useState<GoldPriceData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [investments, setInvestments] = useState<Investment[]>(() => {
     const saved = localStorage.getItem('gold_investments');
     if (saved) {
@@ -93,26 +77,23 @@ export default function App() {
   const [newPrice, setNewPrice] = useState('');
   const [newDate, setNewDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  // Simulate real-time price updates
+  // Fetch real-time price updates from backend
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentPrice((prev) => {
-        const change = (Math.random() - 0.5) * 0.1; // Small fluctuations
-        const newPrice = Number((prev + change).toFixed(2));
-        
-        // Update history if it's a new day (simplified: just update the last point for real-time feel)
-        setPriceHistory(history => {
-          const newHistory = [...history];
-          newHistory[newHistory.length - 1] = {
-            ...newHistory[newHistory.length - 1],
-            price: newPrice
-          };
-          return newHistory;
-        });
+    const fetchPriceData = async () => {
+      try {
+        const response = await fetch('/api/gold-price');
+        if (!response.ok) throw new Error('Failed to fetch');
+        const data = await response.json();
+        setCurrentPrice(data.currentPrice);
+        setPriceHistory(data.history);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching gold price:', error);
+      }
+    };
 
-        return newPrice;
-      });
-    }, 5000); // Update every 5 seconds
+    fetchPriceData();
+    const interval = setInterval(fetchPriceData, 5000); // Update every 5 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -128,8 +109,8 @@ export default function App() {
   const totalProfitLoss = currentValue - totalInvested;
   const profitLossPercentage = totalInvested > 0 ? (totalProfitLoss / totalInvested) * 100 : 0;
 
-  const priceChange24h = currentPrice - priceHistory[priceHistory.length - 2].price;
-  const priceChange24hPercent = (priceChange24h / priceHistory[priceHistory.length - 2].price) * 100;
+  const priceChange24h = priceHistory.length >= 2 ? currentPrice - priceHistory[priceHistory.length - 2].price : 0;
+  const priceChange24hPercent = priceHistory.length >= 2 ? (priceChange24h / priceHistory[priceHistory.length - 2].price) * 100 : 0;
 
   const handleAddInvestment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,7 +255,7 @@ export default function App() {
                 </h2>
                 <div className="space-y-4">
                   <div className="p-4 bg-blue-50 rounded-xl text-blue-800 text-sm">
-                    <strong>Trend Analysis:</strong> Gold prices have shown a {priceHistory[0].price < currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price of ${currentPrice.toFixed(2)} is {currentPrice > (totalInvested/totalWeight) ? 'above' : 'below'} your average purchase price.
+                    <strong>Trend Analysis:</strong> Gold prices have shown a {priceHistory.length > 0 && priceHistory[0].price < currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price of ${currentPrice.toFixed(2)} is {currentPrice > (totalInvested/totalWeight) ? 'above' : 'below'} your average purchase price.
                   </div>
                   <div className="p-4 bg-amber-50 rounded-xl text-amber-800 text-sm">
                     <strong>Recommendation:</strong> {currentPrice > (totalInvested/totalWeight) * 1.05 ? 'Your portfolio is up significantly. Consider taking partial profits if you need liquidity.' : 'Prices are relatively stable. Good time to hold or accumulate if you are investing long-term.'}
