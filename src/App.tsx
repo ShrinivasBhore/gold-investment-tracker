@@ -31,11 +31,14 @@ import {
   Lock,
   Mail,
   Bell,
-  BellRing
+  BellRing,
+  Download
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -316,6 +319,58 @@ export default function App() {
     setNotifications([]);
   };
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    
+    // Title
+    doc.setFontSize(20);
+    doc.text('Aura Gold - Portfolio Summary', 14, 22);
+    
+    // Date
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPpp')}`, 14, 30);
+    
+    // Summary Stats
+    doc.setFontSize(14);
+    doc.setTextColor(0);
+    doc.text('Analytics Overview', 14, 45);
+    
+    doc.setFontSize(11);
+    doc.text(`Total Portfolio Value: Rs. ${currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 14, 55);
+    doc.text(`Total Invested: Rs. ${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 14, 62);
+    doc.text(`Total Profit/Loss: ${totalProfitLoss >= 0 ? '+' : '-'}Rs. ${Math.abs(totalProfitLoss).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${profitLossPercentage.toFixed(2)}%)`, 14, 69);
+
+    // Holdings Table
+    const tableData = investments.map(inv => {
+      const currentAssetPrice = prices[inv.assetType]?.currentPrice || 0;
+      const currentVal = inv.quantity * currentAssetPrice;
+      const investedVal = inv.quantity * inv.purchasePrice;
+      const profit = currentVal - investedVal;
+      const profitPct = investedVal > 0 ? (profit / investedVal) * 100 : 0;
+      
+      return [
+        inv.name,
+        inv.assetType.toUpperCase(),
+        `${inv.quantity} ${inv.assetType === 'crypto' ? 'BTC' : 'g'}`,
+        `Rs. ${inv.purchasePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `Rs. ${currentVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `${profit >= 0 ? '+' : '-'}Rs. ${Math.abs(profit).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${profitPct.toFixed(2)}%)`
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 80,
+      head: [['Asset Name', 'Type', 'Quantity', 'Purchase Price', 'Current Value', 'Return']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [251, 191, 36] }, // amber-400
+    });
+
+    // Save
+    doc.save(`Aura_Gold_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   if (!token) {
@@ -417,6 +472,14 @@ export default function App() {
               </div>
             </div>
             
+            <button 
+              onClick={exportToPDF}
+              className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors flex items-center gap-2"
+              title="Export PDF Report"
+            >
+              <Download size={20} />
+            </button>
+
             <div className="relative">
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
