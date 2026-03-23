@@ -56,20 +56,7 @@ export default function App() {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [priceHistory, setPriceHistory] = useState<GoldPriceData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [investments, setInvestments] = useState<Investment[]>(() => {
-    const saved = localStorage.getItem('gold_investments');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
-    }
-    return [
-      { id: '1', name: '10g Gold Coin (24K)', weightGrams: 10, purchasePricePerGram: 6200.00, purchaseDate: '2025-11-15' },
-      { id: '2', name: 'Gold Bar (1oz)', weightGrams: 31.1, purchasePricePerGram: 6000.00, purchaseDate: '2025-08-01' },
-    ];
-  });
+  const [investments, setInvestments] = useState<Investment[]>([]);
 
   // New Investment Form State
   const [newName, setNewName] = useState('');
@@ -77,30 +64,38 @@ export default function App() {
   const [newPrice, setNewPrice] = useState('');
   const [newDate, setNewDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  // Fetch real-time price updates from backend
+  // Fetch real-time price updates and investments from backend
   useEffect(() => {
     const fetchPriceData = async () => {
       try {
         const response = await fetch('/api/gold-price');
-        if (!response.ok) throw new Error('Failed to fetch');
+        if (!response.ok) throw new Error('Failed to fetch price');
         const data = await response.json();
         setCurrentPrice(data.currentPrice);
         setPriceHistory(data.history);
-        setIsLoading(false);
       } catch (error) {
         console.error('Error fetching gold price:', error);
       }
     };
 
+    const fetchInvestments = async () => {
+      try {
+        const response = await fetch('/api/investments');
+        if (!response.ok) throw new Error('Failed to fetch investments');
+        const data = await response.json();
+        setInvestments(data);
+      } catch (error) {
+        console.error('Error fetching investments:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     fetchPriceData();
+    fetchInvestments();
     const interval = setInterval(fetchPriceData, 5000); // Update every 5 seconds
     return () => clearInterval(interval);
   }, []);
-
-  // Save investments to local storage
-  useEffect(() => {
-    localStorage.setItem('gold_investments', JSON.stringify(investments));
-  }, [investments]);
 
   // Derived State
   const totalWeight = useMemo(() => investments.reduce((sum, inv) => sum + inv.weightGrams, 0), [investments]);
@@ -112,27 +107,50 @@ export default function App() {
   const priceChange24h = priceHistory.length >= 2 ? currentPrice - priceHistory[priceHistory.length - 2].price : 0;
   const priceChange24hPercent = priceHistory.length >= 2 ? (priceChange24h / priceHistory[priceHistory.length - 2].price) * 100 : 0;
 
-  const handleAddInvestment = (e: React.FormEvent) => {
+  const handleAddInvestment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newWeight || !newPrice || !newDate) return;
 
-    const newInv: Investment = {
-      id: Date.now().toString(),
-      name: newName,
-      weightGrams: parseFloat(newWeight),
-      purchasePricePerGram: parseFloat(newPrice),
-      purchaseDate: newDate,
-    };
+    try {
+      const response = await fetch('/api/investments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newName,
+          weightGrams: parseFloat(newWeight),
+          purchasePricePerGram: parseFloat(newPrice),
+          purchaseDate: newDate,
+        }),
+      });
 
-    setInvestments([...investments, newInv]);
-    setNewName('');
-    setNewWeight('');
-    setNewPrice('');
-    setNewDate(format(new Date(), 'yyyy-MM-dd'));
+      if (!response.ok) throw new Error('Failed to add investment');
+      
+      const newInv = await response.json();
+      setInvestments([newInv, ...investments]);
+      
+      setNewName('');
+      setNewWeight('');
+      setNewPrice('');
+      setNewDate(format(new Date(), 'yyyy-MM-dd'));
+    } catch (error) {
+      console.error('Error adding investment:', error);
+    }
   };
 
-  const handleDeleteInvestment = (id: string) => {
-    setInvestments(investments.filter(inv => inv.id !== id));
+  const handleDeleteInvestment = async (id: string) => {
+    try {
+      const response = await fetch(`/api/investments/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete investment');
+      
+      setInvestments(investments.filter(inv => inv.id !== id));
+    } catch (error) {
+      console.error('Error deleting investment:', error);
+    }
   };
 
   return (

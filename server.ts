@@ -3,8 +3,43 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { format, subDays } from "date-fns";
 import YahooFinance from 'yahoo-finance2';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const yahooFinance = new YahooFinance();
+
+// --- MongoDB Setup ---
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/aura-gold-tracker';
+
+let isMongoConnected = false;
+
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 3000 // Fail fast if no MongoDB instance is found
+})
+  .then(() => {
+    console.log('Connected to MongoDB');
+    isMongoConnected = true;
+  })
+  .catch(err => {
+    console.warn('MongoDB connection error. Falling back to in-memory storage.', err.message);
+  });
+
+const investmentSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  weightGrams: { type: Number, required: true },
+  purchasePricePerGram: { type: Number, required: true },
+  purchaseDate: { type: String, required: true },
+}, { timestamps: true });
+
+const Investment = mongoose.model('Investment', investmentSchema);
+
+// In-memory fallback storage
+let inMemoryInvestments = [
+  { id: '1', name: '10g Gold Coin (24K)', weightGrams: 10, purchasePricePerGram: 6200.00, purchaseDate: '2025-11-15' },
+  { id: '2', name: 'Gold Bar (1oz)', weightGrams: 31.1, purchasePricePerGram: 6000.00, purchaseDate: '2025-08-01' },
+];
 
 // --- Real-time Data Fetcher ---
 // Cache for API responses to avoid rate limits
@@ -104,6 +139,81 @@ async function startServer() {
   app.get("/api/gold-price", async (req, res) => {
     const data = await fetchRealGoldPrice();
     res.json(data);
+  });
+
+  // Get all investments
+  app.get("/api/investments", async (req, res) => {
+    try {
+      if (!isMongoConnected) {
+        return res.json(inMemoryInvestments);
+      }
+      const investments = await Investment.find().sort({ createdAt: -1 });
+      res.json(investments.map(inv => ({
+        id: inv._id.toString(),
+        name: inv.name,
+        weightGrams: inv.weightGrams,
+        purchasePricePerGram: inv.purchasePricePerGram,
+        purchaseDate: inv.purchaseDate
+      })));
+    } catch (error) {
+      console.error("Error fetching investments:", error);
+      res.status(500).json({ error: "Failed to fetch investments" });
+    }
+  });
+
+  // Add a new investment
+  app.post("/api/investments", async (req, res) => {
+    try {
+      const { name, weightGrams, purchasePricePerGram, purchaseDate } = req.body;
+      
+      if (!isMongoConnected) {
+        const newInv = {
+          id: Date.now().toString(),
+          name,
+          weightGrams,
+          purchasePricePerGram,
+          purchaseDate
+        };
+        inMemoryInvestments.unshift(newInv);
+        return res.status(201).json(newInv);
+      }
+
+      const newInvestment = new Investment({
+        name,
+        weightGrams,
+        purchasePricePerGram,
+        purchaseDate
+      });
+      await newInvestment.save();
+      res.status(201).json({
+        id: newInvestment._id.toString(),
+        name: newInvestment.name,
+        weightGrams: newInvestment.weightGrams,
+        purchasePricePerGram: newInvestment.purchasePricePerGram,
+        purchaseDate: newInvestment.purchaseDate
+      });
+    } catch (error) {
+      console.error("Error adding investment:", error);
+      res.status(500).json({ error: "Failed to add investment" });
+    }
+  });
+
+  // Delete an investment
+  app.delete("/api/investments/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!isMongoConnected) {
+        inMemoryInvestments = inMemoryInvestments.filter(inv => inv.id !== id);
+        return res.status(200).json({ message: "Investment deleted successfully" });
+      }
+
+      await Investment.findByIdAndDelete(id);
+      res.status(200).json({ message: "Investment deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting investment:", error);
+      res.status(500).json({ error: "Failed to delete investment" });
+    }
   });
 
   // --- Vite Middleware for Development ---
