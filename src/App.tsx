@@ -32,7 +32,8 @@ import {
   Mail,
   Bell,
   BellRing,
-  Download
+  Download,
+  Sparkles
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -106,6 +107,9 @@ export default function App() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  
+  const [aiInsight, setAiInsight] = useState<{ insight: string, recommendation: string } | null>(null);
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
 
   // New Investment Form State
   const [newAssetType, setNewAssetType] = useState<'gold' | 'silver' | 'crypto'>('gold');
@@ -290,6 +294,32 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error marking notification read:', error);
+    }
+  };
+
+  const generateAIInsight = async () => {
+    if (!token || investments.length === 0) return;
+    setIsGeneratingInsight(true);
+    try {
+      const response = await fetch('/api/insights', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          portfolio: investments,
+          prices: prices
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate insights');
+      const data = await response.json();
+      setAiInsight(data);
+    } catch (error) {
+      console.error('Error generating AI insight:', error);
+    } finally {
+      setIsGeneratingInsight(false);
     }
   };
 
@@ -670,12 +700,53 @@ export default function App() {
 
             {/* Market Insights */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-               <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                  <AlertCircle size={20} className="text-blue-500" />
-                  Market Insights
-                </h2>
+               <div className="flex items-center justify-between mb-4">
+                 <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Sparkles size={20} className="text-amber-500" />
+                    AI Smart Insights
+                  </h2>
+                  <button
+                    onClick={generateAIInsight}
+                    disabled={isGeneratingInsight || investments.length === 0}
+                    className="text-sm bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isGeneratingInsight ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      'Generate Insight'
+                    )}
+                  </button>
+               </div>
                 <div className="space-y-4">
-                  <div className="p-4 bg-blue-50 rounded-xl text-blue-800 text-sm">
+                  {aiInsight ? (
+                    <div className="space-y-3">
+                      <div className="p-4 bg-amber-50/50 rounded-xl text-gray-800 text-sm leading-relaxed border border-amber-100">
+                        {aiInsight.insight}
+                      </div>
+                      <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Recommendation:</span>
+                        <span className={cn(
+                          "text-sm font-semibold px-2 py-0.5 rounded-md",
+                          aiInsight.recommendation.toLowerCase().includes('buy') ? "bg-emerald-100 text-emerald-800" :
+                          aiInsight.recommendation.toLowerCase().includes('sell') ? "bg-rose-100 text-rose-800" :
+                          "bg-blue-100 text-blue-800"
+                        )}>
+                          {aiInsight.recommendation}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-gray-50 rounded-xl text-gray-500 text-sm text-center border border-gray-100 border-dashed">
+                      {investments.length === 0 
+                        ? "Add investments to your portfolio to get personalized AI insights."
+                        : "Click 'Generate Insight' to analyze your portfolio against current market trends."}
+                    </div>
+                  )}
+                  
+                  <div className="p-4 bg-blue-50 rounded-xl text-blue-800 text-sm mt-4">
                     <strong>{selectedChartAsset.charAt(0).toUpperCase() + selectedChartAsset.slice(1)} Trend:</strong> Prices have shown a {activeChartData.history.length > 0 && activeChartData.history[0].price < activeChartData.currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price is ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </div>
                 </div>

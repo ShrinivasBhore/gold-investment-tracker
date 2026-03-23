@@ -1,3 +1,4 @@
+import { GoogleGenAI, Type } from "@google/genai";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -513,6 +514,58 @@ async function startServer() {
       res.status(200).json({ message: "Marked as read" });
     } catch (error) {
       res.status(500).json({ error: "Failed to update notification" });
+    }
+  });
+
+  // --- AI Insights API ---
+  app.post("/api/insights", authMiddleware, async (req: any, res) => {
+    try {
+      const { portfolio, prices } = req.body;
+      
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(500).json({ error: "Gemini API key not configured" });
+      }
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const prompt = `
+        You are an expert financial advisor. Analyze the following portfolio and current market prices.
+        Provide a short, punchy insight (max 3 sentences) and a buy/sell recommendation.
+        
+        Portfolio: ${JSON.stringify(portfolio)}
+        Current Prices: ${JSON.stringify(prices)}
+      `;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              insight: {
+                type: Type.STRING,
+                description: "A short, punchy analysis of the portfolio and market (max 3 sentences)."
+              },
+              recommendation: {
+                type: Type.STRING,
+                description: "A clear buy/sell/hold recommendation based on the data."
+              }
+            },
+            required: ["insight", "recommendation"]
+          }
+        }
+      });
+      
+      if (!response.text) {
+        throw new Error("No response from Gemini");
+      }
+
+      res.json(JSON.parse(response.text));
+    } catch (error) {
+      console.error("Error generating insights:", error);
+      res.status(500).json({ error: "Failed to generate insights" });
     }
   });
 
