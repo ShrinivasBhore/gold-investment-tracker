@@ -2,37 +2,95 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { format, subDays } from "date-fns";
+import YahooFinance from 'yahoo-finance2';
 
-// --- Mock Data Generator ---
-const generateHistoricalData = (days: number, basePrice: number) => {
-  const data = [];
-  let currentPrice = basePrice;
-  for (let i = days; i >= 0; i--) {
-    const date = format(subDays(new Date(), i), 'MMM dd');
-    // Random walk with slight upward bias
-    const change = (Math.random() - 0.45) * 1.5;
-    currentPrice = currentPrice + change;
-    data.push({ date, price: Number(currentPrice.toFixed(2)) });
-  }
-  return data;
+const yahooFinance = new YahooFinance();
+
+// --- Real-time Data Fetcher ---
+// Cache for API responses to avoid rate limits
+let cachedGoldData: { currentPrice: number, history: any[] } = {
+  currentPrice: 6500.00,
+  history: []
 };
+let lastFetchTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-// Initialize server-side state
-const INITIAL_PRICE_PER_GRAM = 76.50; // USD
-let priceHistory = generateHistoricalData(30, 74.00);
-let currentPrice = priceHistory[priceHistory.length - 1].price;
+// 1 Troy Ounce = 31.1034768 grams
+const TROY_OUNCE_TO_GRAMS = 31.1034768;
 
-// Simulate real-time price updates on the server
-setInterval(() => {
-  const change = (Math.random() - 0.5) * 0.1; // Small fluctuations
-  currentPrice = Number((currentPrice + change).toFixed(2));
-  
-  // Update the last point in history to reflect current price
-  priceHistory[priceHistory.length - 1] = {
-    ...priceHistory[priceHistory.length - 1],
-    price: currentPrice
-  };
-}, 5000); // Update every 5 seconds
+async function fetchRealGoldPrice() {
+  try {
+    const now = Date.now();
+    // Return cached data if within duration and we have history
+    if (now - lastFetchTime < CACHE_DURATION && cachedGoldData.history.length > 0) {
+      return cachedGoldData;
+    }
+
+    console.log("Fetching fresh gold price data from Yahoo Finance...");
+
+    // Fetch current quotes
+    const goldQuote = await yahooFinance.quote('GC=F'); // Gold Futures (USD/oz)
+    const inrQuote = await yahooFinance.quote('INR=X'); // USD to INR
+
+    if (!goldQuote || !inrQuote) throw new Error("Failed to fetch quotes");
+
+    const pricePerOunceUsd = goldQuote.regularMarketPrice || 2000;
+    const usdToInr = inrQuote.regularMarketPrice || 83;
+    const currentPriceInrPerGram = (pricePerOunceUsd / TROY_OUNCE_TO_GRAMS) * usdToInr;
+
+    // Fetch historical data (last 30 days)
+    const period1 = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const period2 = new Date(now);
+    
+    const goldChart = await yahooFinance.chart('GC=F', { period1, period2, interval: '1d' });
+    const inrChart = await yahooFinance.chart('INR=X', { period1, period2, interval: '1d' });
+
+    const goldHist = goldChart.quotes;
+    const inrHist = inrChart.quotes;
+
+    // Create a map of INR rates by date for easy lookup
+    const inrMap = new Map();
+    for (const row of inrHist) {
+      if (!row.date || !row.close) continue;
+      const dateStr = format(row.date, 'yyyy-MM-dd');
+      inrMap.set(dateStr, row.close);
+    }
+
+    const history = [];
+    for (const row of goldHist) {
+      if (!row.date || !row.close) continue;
+      const dateStr = format(row.date, 'yyyy-MM-dd');
+      const inrRate = inrMap.get(dateStr) || usdToInr; // fallback to current if missing
+      
+      const priceInrPerGram = (row.close / TROY_OUNCE_TO_GRAMS) * inrRate;
+      
+      history.push({
+        date: format(row.date, 'MMM dd'),
+        price: Number(priceInrPerGram.toFixed(2))
+      });
+    }
+
+    // Ensure the last point is the current live price
+    if (history.length > 0) {
+      history[history.length - 1].price = Number(currentPriceInrPerGram.toFixed(2));
+    }
+
+    cachedGoldData = {
+      currentPrice: Number(currentPriceInrPerGram.toFixed(2)),
+      history
+    };
+    lastFetchTime = now;
+
+    return cachedGoldData;
+  } catch (error: any) {
+    console.error("Error fetching real gold price:", error);
+    // Return cached data or fallback
+    return cachedGoldData;
+  }
+}
+
+// Initial fetch
+fetchRealGoldPrice();
 
 async function startServer() {
   const app = express();
@@ -43,11 +101,9 @@ async function startServer() {
   // --- API Routes ---
   
   // Get current gold price and 30-day history
-  app.get("/api/gold-price", (req, res) => {
-    res.json({
-      currentPrice,
-      history: priceHistory
-    });
+  app.get("/api/gold-price", async (req, res) => {
+    const data = await fetchRealGoldPrice();
+    res.json(data);
   });
 
   // --- Vite Middleware for Development ---
