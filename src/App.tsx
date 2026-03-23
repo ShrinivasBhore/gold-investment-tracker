@@ -101,6 +101,7 @@ export default function App() {
   });
   const [selectedChartAsset, setSelectedChartAsset] = useState<'gold' | 'silver' | 'crypto'>('gold');
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -126,8 +127,10 @@ export default function App() {
         if (!response.ok) throw new Error('Failed to fetch prices');
         const data = await response.json();
         setPrices(data);
+        setFetchError(null);
       } catch (error) {
         console.error('Error fetching prices:', error);
+        setFetchError('Failed to connect to the server. Retrying...');
       }
     };
 
@@ -148,8 +151,10 @@ export default function App() {
         if (invRes.ok) setInvestments(await invRes.json());
         if (alertsRes.ok) setAlerts(await alertsRes.json());
         if (notifRes.ok) setNotifications(await notifRes.json());
+        setFetchError(null);
       } catch (error) {
         console.error('Error fetching user data:', error);
+        setFetchError('Failed to load portfolio data.');
       } finally {
         setIsLoading(false);
       }
@@ -541,106 +546,127 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8">
         
+        {fetchError && (
+          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-3">
+            <AlertCircle size={20} />
+            <p className="font-medium text-sm">{fetchError}</p>
+          </div>
+        )}
+
         {/* Top Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <StatCard 
-            title="Total Portfolio Value" 
-            value={`₹${currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            subtitle={`${investments.length} Assets Tracked`}
-            icon={<Briefcase className="text-blue-500" size={24} />}
-          />
-          <StatCard 
-            title="Total Profit / Loss" 
-            value={`${totalProfitLoss >= 0 ? '+' : '-'}₹${Math.abs(totalProfitLoss).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            valueColor={totalProfitLoss >= 0 ? 'text-emerald-600' : 'text-rose-600'}
-            subtitle={`${totalProfitLoss >= 0 ? '+' : ''}${profitLossPercentage.toFixed(2)}% All Time`}
-            icon={totalProfitLoss >= 0 ? <TrendingUp className="text-emerald-500" size={24} /> : <TrendingDown className="text-rose-500" size={24} />}
-          />
-          <StatCard 
-            title="Total Invested" 
-            value={`₹${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            subtitle="Principal Amount"
-            icon={<IndianRupee className="text-amber-500" size={24} />}
-          />
+          {isLoading ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatCard 
+                title="Total Portfolio Value" 
+                value={`₹${currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                subtitle={`${investments.length} Assets Tracked`}
+                icon={<Briefcase className="text-blue-500" size={24} />}
+              />
+              <StatCard 
+                title="Total Profit / Loss" 
+                value={`${totalProfitLoss >= 0 ? '+' : '-'}₹${Math.abs(totalProfitLoss).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                valueColor={totalProfitLoss >= 0 ? 'text-emerald-600' : 'text-rose-600'}
+                subtitle={`${totalProfitLoss >= 0 ? '+' : ''}${profitLossPercentage.toFixed(2)}% All Time`}
+                icon={totalProfitLoss >= 0 ? <TrendingUp className="text-emerald-500" size={24} /> : <TrendingDown className="text-rose-500" size={24} />}
+              />
+              <StatCard 
+                title="Total Invested" 
+                value={`₹${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                subtitle="Principal Amount"
+                icon={<IndianRupee className="text-amber-500" size={24} />}
+              />
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Main Chart Area */}
           <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <ChartIcon size={20} className="text-gray-400" />
-                    Price Trend (30 Days)
-                  </h2>
-                  <select 
-                    value={selectedChartAsset}
-                    onChange={e => setSelectedChartAsset(e.target.value as any)}
-                    className="text-sm border-gray-200 rounded-md focus:ring-amber-400 focus:border-amber-400"
-                  >
-                    <option value="gold">Gold (per g)</option>
-                    <option value="silver">Silver (per g)</option>
-                    <option value="crypto">Bitcoin</option>
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <div className="text-right mr-4">
-                    <div className="text-lg font-bold flex items-center justify-end gap-1">
-                      ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      <span className={cn(
-                        "text-sm font-medium flex items-center",
-                        priceChange24h >= 0 ? "text-emerald-600" : "text-rose-600"
-                      )}>
-                        {priceChange24h >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                        {Math.abs(priceChange24hPercent).toFixed(2)}%
-                      </span>
+            {isLoading ? (
+              <ChartSkeleton />
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-lg font-semibold flex items-center gap-2">
+                      <ChartIcon size={20} className="text-gray-400" />
+                      Price Trend (30 Days)
+                    </h2>
+                    <select 
+                      value={selectedChartAsset}
+                      onChange={e => setSelectedChartAsset(e.target.value as any)}
+                      className="text-sm border-gray-200 rounded-md focus:ring-amber-400 focus:border-amber-400"
+                    >
+                      <option value="gold">Gold (per g)</option>
+                      <option value="silver">Silver (per g)</option>
+                      <option value="crypto">Bitcoin</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="text-right mr-4">
+                      <div className="text-lg font-bold flex items-center justify-end gap-1">
+                        ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <span className={cn(
+                          "text-sm font-medium flex items-center",
+                          priceChange24h >= 0 ? "text-emerald-600" : "text-rose-600"
+                        )}>
+                          {priceChange24h >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                          {Math.abs(priceChange24hPercent).toFixed(2)}%
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={activeChartData.history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                      <XAxis 
+                        dataKey="date" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 12, fill: '#9ca3af' }} 
+                        dy={10}
+                      />
+                      <YAxis 
+                        domain={['dataMin - 200', 'dataMax + 200']} 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 12, fill: '#9ca3af' }}
+                        tickFormatter={(val) => `₹${val}`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        itemStyle={{ color: '#1f2937', fontWeight: 600 }}
+                        formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Price']}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="#fbbf24" 
+                        strokeWidth={3}
+                        fillOpacity={1} 
+                        fill="url(#colorPrice)" 
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={activeChartData.history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 12, fill: '#9ca3af' }} 
-                      dy={10}
-                    />
-                    <YAxis 
-                      domain={['dataMin - 200', 'dataMax + 200']} 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 12, fill: '#9ca3af' }}
-                      tickFormatter={(val) => `₹${val}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                      itemStyle={{ color: '#1f2937', fontWeight: 600 }}
-                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Price']}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke="#fbbf24" 
-                      strokeWidth={3}
-                      fillOpacity={1} 
-                      fill="url(#colorPrice)" 
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            )}
 
             {/* Market Insights */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -824,7 +850,9 @@ export default function App() {
             {/* Holdings List */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-lg font-semibold mb-4">Your Holdings</h2>
-              {investments.length === 0 ? (
+              {isLoading ? (
+                <HoldingsSkeleton />
+              ) : investments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 text-sm">
                   No investments added yet.
                 </div>
@@ -899,6 +927,49 @@ function StatCard({ title, value, subtitle, icon, valueColor = "text-gray-900" }
         <div className={cn("text-2xl font-bold mb-1", valueColor)}>{value}</div>
         <p className="text-sm text-gray-400">{subtitle}</p>
       </div>
+    </div>
+  );
+}
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse bg-gray-200 rounded-md", className)} />;
+}
+
+function StatCardSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-start gap-4">
+      <Skeleton className="w-12 h-12 rounded-xl" />
+      <div className="space-y-2 flex-1">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-3 w-20" />
+      </div>
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
+      <div className="flex justify-between mb-6">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-8 w-32" />
+      </div>
+      <Skeleton className="flex-1 w-full rounded-xl" />
+    </div>
+  );
+}
+
+function HoldingsSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 space-y-3">
+          <div className="flex gap-2"><Skeleton className="h-4 w-12" /><Skeleton className="h-4 w-32" /></div>
+          <div className="flex justify-between"><Skeleton className="h-3 w-24" /><Skeleton className="h-3 w-20" /></div>
+          <div className="flex justify-between pt-3 border-t border-gray-200/60"><Skeleton className="h-8 w-24" /><Skeleton className="h-8 w-24" /></div>
+        </div>
+      ))}
     </div>
   );
 }
