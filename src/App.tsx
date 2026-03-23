@@ -508,9 +508,9 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-gray-900 pb-12">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-50/40 via-slate-50 to-slate-100 font-sans text-gray-900 pb-12">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+      <header className="bg-white/60 backdrop-blur-xl border-b border-white/80 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center text-amber-900 shadow-sm">
@@ -647,7 +647,7 @@ export default function App() {
             {isLoading ? (
               <ChartSkeleton />
             ) : (
-              <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
+              <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-4">
                     <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -723,7 +723,7 @@ export default function App() {
             )}
 
             {/* Market Insights */}
-            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 p-6">
                <div className="flex items-center justify-between mb-4">
                  <h2 className="text-lg font-semibold flex items-center gap-2">
                     <Sparkles size={20} className="text-amber-500" />
@@ -777,7 +777,7 @@ export default function App() {
             </motion.div>
 
             {/* Price Alerts */}
-            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Bell size={20} className="text-amber-500" />
                 Price Alerts
@@ -864,7 +864,7 @@ export default function App() {
           <div className="space-y-6">
             
             {/* Add Investment Form */}
-            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 p-6">
               <h2 className="text-lg font-semibold mb-4">Add Investment</h2>
               <form onSubmit={handleAddInvestment} className="space-y-4">
                 <div>
@@ -952,7 +952,7 @@ export default function App() {
             </motion.div>
 
             {/* Holdings List */}
-            <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 p-6">
+            <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 p-6">
               <h2 className="text-lg font-semibold mb-4">Your Holdings</h2>
               {isLoading ? (
                 <HoldingsSkeleton />
@@ -1031,8 +1031,8 @@ export default function App() {
 
 function StatCard({ title, value, subtitle, icon, valueColor = "text-gray-900" }: { title: string, value: string, subtitle: string, icon: React.ReactNode, valueColor?: string }) {
   return (
-    <motion.div variants={itemVariants} className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 flex items-start gap-4 group">
-      <div className="p-3 bg-gray-50 rounded-xl group-hover:scale-110 transition-transform duration-300">
+    <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 border border-white/80 flex items-start gap-4 group">
+      <div className="p-3 bg-gray-50/50 rounded-xl group-hover:scale-110 transition-transform duration-300">
         {icon}
       </div>
       <div>
@@ -1050,7 +1050,7 @@ function Skeleton({ className }: { className?: string }) {
 
 function StatCardSkeleton() {
   return (
-    <motion.div variants={itemVariants} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-start gap-4">
+    <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 flex items-start gap-4">
       <Skeleton className="w-12 h-12 rounded-xl" />
       <div className="space-y-2 flex-1">
         <Skeleton className="h-4 w-24" />
@@ -1063,7 +1063,7 @@ function StatCardSkeleton() {
 
 function ChartSkeleton() {
   return (
-    <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
+    <motion.div variants={itemVariants} className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/80 p-6 h-[400px] flex flex-col">
       <div className="flex justify-between mb-6">
         <Skeleton className="h-6 w-48" />
         <Skeleton className="h-8 w-32" />
