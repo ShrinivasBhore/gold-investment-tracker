@@ -5,8 +5,12 @@ import { format, subDays } from "date-fns";
 import YahooFinance from 'yahoo-finance2';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 const yahooFinance = new YahooFinance();
 
@@ -26,7 +30,15 @@ mongoose.connect(MONGODB_URI, {
     console.warn('MongoDB connection error. Falling back to in-memory storage.', err.message);
   });
 
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
+
 const investmentSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
   name: { type: String, required: true },
   weightGrams: { type: Number, required: true },
   purchasePricePerGram: { type: Number, required: true },
@@ -36,10 +48,25 @@ const investmentSchema = new mongoose.Schema({
 const Investment = mongoose.model('Investment', investmentSchema);
 
 // In-memory fallback storage
+let inMemoryUsers: any[] = [];
 let inMemoryInvestments = [
-  { id: '1', name: '10g Gold Coin (24K)', weightGrams: 10, purchasePricePerGram: 6200.00, purchaseDate: '2025-11-15' },
-  { id: '2', name: 'Gold Bar (1oz)', weightGrams: 31.1, purchasePricePerGram: 6000.00, purchaseDate: '2025-08-01' },
+  { id: '1', userId: 'default', name: '10g Gold Coin (24K)', weightGrams: 10, purchasePricePerGram: 6200.00, purchaseDate: '2025-11-15' },
+  { id: '2', userId: 'default', name: 'Gold Bar (1oz)', weightGrams: 31.1, purchasePricePerGram: 6000.00, purchaseDate: '2025-08-01' },
 ];
+
+// Auth middleware
+const authMiddleware = (req: any, res: any, next: any) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
 
 // --- Real-time Data Fetcher ---
 // Cache for API responses to avoid rate limits
@@ -135,6 +162,63 @@ async function startServer() {
 
   // --- API Routes ---
   
+  // Auth Routes
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      if (!isMongoConnected) {
+        if (inMemoryUsers.find(u => u.email === email)) {
+          return res.status(400).json({ error: 'User already exists' });
+        }
+        const newUser = { id: Date.now().toString(), email, password: hashedPassword };
+        inMemoryUsers.push(newUser);
+        const token = jwt.sign({ id: newUser.id }, JWT_SECRET, { expiresIn: '7d' });
+        return res.status(201).json({ token });
+      }
+
+      const existingUser = await User.findOne({ email });
+      if (existingUser) return res.status(400).json({ error: 'User already exists' });
+
+      const user = new User({ email, password: hashedPassword });
+      await user.save();
+
+      const token = jwt.sign({ id: user._id.toString() }, JWT_SECRET, { expiresIn: '7d' });
+      res.status(201).json({ token });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({ error: 'Registration failed' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!isMongoConnected) {
+        const user = inMemoryUsers.find(u => u.email === email);
+        if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+        const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+        return res.json({ token });
+      }
+
+      const user = await User.findOne({ email });
+      if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+
+      const token = jwt.sign({ id: user._id.toString() }, JWT_SECRET, { expiresIn: '7d' });
+      res.json({ token });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: 'Login failed' });
+    }
+  });
+
   // Get current gold price and 30-day history
   app.get("/api/gold-price", async (req, res) => {
     const data = await fetchRealGoldPrice();
@@ -142,12 +226,13 @@ async function startServer() {
   });
 
   // Get all investments
-  app.get("/api/investments", async (req, res) => {
+  app.get("/api/investments", authMiddleware, async (req: any, res) => {
     try {
+      const userId = req.user.id;
       if (!isMongoConnected) {
-        return res.json(inMemoryInvestments);
+        return res.json(inMemoryInvestments.filter(inv => inv.userId === userId));
       }
-      const investments = await Investment.find().sort({ createdAt: -1 });
+      const investments = await Investment.find({ userId }).sort({ createdAt: -1 });
       res.json(investments.map(inv => ({
         id: inv._id.toString(),
         name: inv.name,
@@ -162,13 +247,15 @@ async function startServer() {
   });
 
   // Add a new investment
-  app.post("/api/investments", async (req, res) => {
+  app.post("/api/investments", authMiddleware, async (req: any, res) => {
     try {
+      const userId = req.user.id;
       const { name, weightGrams, purchasePricePerGram, purchaseDate } = req.body;
       
       if (!isMongoConnected) {
         const newInv = {
           id: Date.now().toString(),
+          userId,
           name,
           weightGrams,
           purchasePricePerGram,
@@ -179,6 +266,7 @@ async function startServer() {
       }
 
       const newInvestment = new Investment({
+        userId,
         name,
         weightGrams,
         purchasePricePerGram,
@@ -199,16 +287,17 @@ async function startServer() {
   });
 
   // Delete an investment
-  app.delete("/api/investments/:id", async (req, res) => {
+  app.delete("/api/investments/:id", authMiddleware, async (req: any, res) => {
     try {
+      const userId = req.user.id;
       const { id } = req.params;
       
       if (!isMongoConnected) {
-        inMemoryInvestments = inMemoryInvestments.filter(inv => inv.id !== id);
+        inMemoryInvestments = inMemoryInvestments.filter(inv => inv.id !== id || inv.userId !== userId);
         return res.status(200).json({ message: "Investment deleted successfully" });
       }
 
-      await Investment.findByIdAndDelete(id);
+      await Investment.findOneAndDelete({ _id: id, userId });
       res.status(200).json({ message: "Investment deleted successfully" });
     } catch (error) {
       console.error("Error deleting investment:", error);

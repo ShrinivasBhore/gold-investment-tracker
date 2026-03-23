@@ -26,7 +26,10 @@ import {
   LineChart as ChartIcon,
   Activity,
   Calendar,
-  Scale
+  Scale,
+  LogOut,
+  Lock,
+  Mail
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -53,6 +56,12 @@ interface Investment {
 // --- Components ---
 
 export default function App() {
+  const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
   const [currentPrice, setCurrentPrice] = useState(0);
   const [priceHistory, setPriceHistory] = useState<GoldPriceData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,8 +88,17 @@ export default function App() {
     };
 
     const fetchInvestments = async () => {
+      if (!token) return;
       try {
-        const response = await fetch('/api/investments');
+        const response = await fetch('/api/investments', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.status === 401) {
+          handleLogout();
+          return;
+        }
         if (!response.ok) throw new Error('Failed to fetch investments');
         const data = await response.json();
         setInvestments(data);
@@ -95,7 +113,7 @@ export default function App() {
     fetchInvestments();
     const interval = setInterval(fetchPriceData, 5000); // Update every 5 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [token]);
 
   // Derived State
   const totalWeight = useMemo(() => investments.reduce((sum, inv) => sum + inv.weightGrams, 0), [investments]);
@@ -109,13 +127,14 @@ export default function App() {
 
   const handleAddInvestment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newWeight || !newPrice || !newDate) return;
+    if (!newName || !newWeight || !newPrice || !newDate || !token) return;
 
     try {
       const response = await fetch('/api/investments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           name: newName,
@@ -140,9 +159,13 @@ export default function App() {
   };
 
   const handleDeleteInvestment = async (id: string) => {
+    if (!token) return;
     try {
       const response = await fetch(`/api/investments/${id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       if (!response.ok) throw new Error('Failed to delete investment');
@@ -152,6 +175,115 @@ export default function App() {
       console.error('Error deleting investment:', error);
     }
   };
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Authentication failed');
+      
+      setToken(data.token);
+      localStorage.setItem('auth_token', data.token);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (err: any) {
+      setAuthError(err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    localStorage.removeItem('auth_token');
+    setInvestments([]);
+  };
+
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4 font-sans">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 w-full max-w-md">
+          <div className="flex items-center justify-center gap-2 mb-8">
+            <div className="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center text-amber-900">
+              <Activity size={24} />
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">Aura Gold</h1>
+          </div>
+          
+          <h2 className="text-xl font-medium text-center mb-6">
+            {authMode === 'login' ? 'Welcome back' : 'Create an account'}
+          </h2>
+
+          {authError && (
+            <div className="mb-4 p-3 bg-rose-50 text-rose-600 text-sm rounded-lg flex items-center gap-2">
+              <AlertCircle size={16} />
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Email</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Mail size={16} className="text-gray-400" />
+                </div>
+                <input 
+                  type="email" 
+                  required
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent text-sm"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Password</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock size={16} className="text-gray-400" />
+                </div>
+                <input 
+                  type="password" 
+                  required
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent text-sm"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+            <button 
+              type="submit"
+              className="w-full bg-gray-900 text-white font-medium py-2.5 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              {authMode === 'login' ? 'Sign In' : 'Sign Up'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-sm text-gray-500">
+            {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
+            <button 
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthError('');
+              }}
+              className="text-amber-600 font-medium hover:underline"
+            >
+              {authMode === 'login' ? 'Sign up' : 'Sign in'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f5f5] font-sans text-gray-900 pb-12">
@@ -164,7 +296,7 @@ export default function App() {
             </div>
             <h1 className="text-xl font-semibold tracking-tight">Aura Gold Tracker</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
             <div className="text-right">
               <div className="text-sm text-gray-500 font-medium uppercase tracking-wider">Live Price (1g)</div>
               <div className="text-lg font-bold flex items-center justify-end gap-1">
@@ -178,6 +310,13 @@ export default function App() {
                 </span>
               </div>
             </div>
+            <button 
+              onClick={handleLogout}
+              className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </header>
