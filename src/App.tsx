@@ -29,7 +29,9 @@ import {
   Scale,
   LogOut,
   Lock,
-  Mail
+  Mail,
+  Bell,
+  BellRing
 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -65,6 +67,21 @@ interface Investment {
   purchaseDate: string;
 }
 
+interface Alert {
+  id: string;
+  assetType: 'gold' | 'silver' | 'crypto';
+  targetPrice: number;
+  condition: 'above' | 'below';
+  isTriggered: boolean;
+}
+
+interface Notification {
+  id: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
 // --- Components ---
 
 export default function App() {
@@ -82,6 +99,9 @@ export default function App() {
   const [selectedChartAsset, setSelectedChartAsset] = useState<'gold' | 'silver' | 'crypto'>('gold');
   const [isLoading, setIsLoading] = useState(true);
   const [investments, setInvestments] = useState<Investment[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // New Investment Form State
   const [newAssetType, setNewAssetType] = useState<'gold' | 'silver' | 'crypto'>('gold');
@@ -89,6 +109,11 @@ export default function App() {
   const [newQuantity, setNewQuantity] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newDate, setNewDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  // New Alert Form State
+  const [newAlertAssetType, setNewAlertAssetType] = useState<'gold' | 'silver' | 'crypto'>('gold');
+  const [newAlertTargetPrice, setNewAlertTargetPrice] = useState('');
+  const [newAlertCondition, setNewAlertCondition] = useState<'above' | 'below'>('above');
 
   // Fetch real-time price updates and investments from backend
   useEffect(() => {
@@ -106,20 +131,22 @@ export default function App() {
     const fetchInvestments = async () => {
       if (!token) return;
       try {
-        const response = await fetch('/api/investments', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.status === 401) {
+        const [invRes, alertsRes, notifRes] = await Promise.all([
+          fetch('/api/investments', { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch('/api/alerts', { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch('/api/notifications', { headers: { 'Authorization': `Bearer ${token}` } })
+        ]);
+
+        if (invRes.status === 401) {
           handleLogout();
           return;
         }
-        if (!response.ok) throw new Error('Failed to fetch investments');
-        const data = await response.json();
-        setInvestments(data);
+
+        if (invRes.ok) setInvestments(await invRes.json());
+        if (alertsRes.ok) setAlerts(await alertsRes.json());
+        if (notifRes.ok) setNotifications(await notifRes.json());
       } catch (error) {
-        console.error('Error fetching investments:', error);
+        console.error('Error fetching user data:', error);
       } finally {
         setIsLoading(false);
       }
@@ -127,7 +154,10 @@ export default function App() {
 
     fetchPriceData();
     fetchInvestments();
-    const interval = setInterval(fetchPriceData, 5000); // Update every 5 seconds
+    const interval = setInterval(() => {
+      fetchPriceData();
+      fetchInvestments(); // Also poll for new notifications/alerts
+    }, 5000); // Update every 5 seconds
     return () => clearInterval(interval);
   }, [token]);
 
@@ -197,6 +227,64 @@ export default function App() {
     }
   };
 
+  const handleAddAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAlertTargetPrice || !token) return;
+
+    try {
+      const response = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          assetType: newAlertAssetType,
+          targetPrice: parseFloat(newAlertTargetPrice),
+          condition: newAlertCondition,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to add alert');
+      
+      const newAlert = await response.json();
+      setAlerts([newAlert, ...alerts]);
+      setNewAlertTargetPrice('');
+    } catch (error) {
+      console.error('Error adding alert:', error);
+    }
+  };
+
+  const handleDeleteAlert = async (id: string) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`/api/alerts/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setAlerts(alerts.filter(a => a.id !== id));
+      }
+    } catch (error) {
+      console.error('Error deleting alert:', error);
+    }
+  };
+
+  const handleMarkNotificationRead = async (id: string) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`/api/notifications/${id}/read`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
+      }
+    } catch (error) {
+      console.error('Error marking notification read:', error);
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -224,7 +312,11 @@ export default function App() {
     setToken(null);
     localStorage.removeItem('auth_token');
     setInvestments([]);
+    setAlerts([]);
+    setNotifications([]);
   };
+
+  const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   if (!token) {
     return (
@@ -324,6 +416,55 @@ export default function App() {
                 ₹{currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
+            
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors relative"
+                title="Notifications"
+              >
+                {unreadNotificationsCount > 0 ? (
+                  <>
+                    <BellRing size={20} className="text-amber-500" />
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
+                  </>
+                ) : (
+                  <Bell size={20} />
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
+                  <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <h3 className="font-semibold text-gray-900">Notifications</h3>
+                    {unreadNotificationsCount > 0 && (
+                      <span className="text-xs font-medium bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
+                        {unreadNotificationsCount} new
+                      </span>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-gray-500">No notifications yet.</div>
+                    ) : (
+                      <div className="divide-y divide-gray-50">
+                        {notifications.map(notif => (
+                          <div 
+                            key={notif.id} 
+                            className={cn("p-4 text-sm transition-colors", notif.read ? "bg-white opacity-70" : "bg-amber-50/30")}
+                            onClick={() => !notif.read && handleMarkNotificationRead(notif.id)}
+                          >
+                            <p className="text-gray-800">{notif.message}</p>
+                            <p className="text-xs text-gray-400 mt-1">{format(new Date(notif.createdAt), 'MMM dd, h:mm a')}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button 
               onClick={handleLogout}
               className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
@@ -449,6 +590,80 @@ export default function App() {
                     <strong>{selectedChartAsset.charAt(0).toUpperCase() + selectedChartAsset.slice(1)} Trend:</strong> Prices have shown a {activeChartData.history.length > 0 && activeChartData.history[0].price < activeChartData.currentPrice ? 'steady increase' : 'slight decline'} over the past 30 days. The current price is ₹{activeChartData.currentPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
                   </div>
                 </div>
+            </div>
+
+            {/* Price Alerts */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Bell size={20} className="text-amber-500" />
+                Price Alerts
+              </h2>
+              
+              <form onSubmit={handleAddAlert} className="flex gap-4 mb-6">
+                <select 
+                  value={newAlertAssetType}
+                  onChange={e => setNewAlertAssetType(e.target.value as any)}
+                  className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                >
+                  <option value="gold">Gold</option>
+                  <option value="silver">Silver</option>
+                  <option value="crypto">Bitcoin</option>
+                </select>
+                <select 
+                  value={newAlertCondition}
+                  onChange={e => setNewAlertCondition(e.target.value as any)}
+                  className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                >
+                  <option value="above">Goes Above</option>
+                  <option value="below">Drops Below</option>
+                </select>
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <IndianRupee size={14} className="text-gray-400" />
+                  </div>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    required
+                    value={newAlertTargetPrice}
+                    onChange={e => setNewAlertTargetPrice(e.target.value)}
+                    placeholder="Target Price"
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  Set Alert
+                </button>
+              </form>
+
+              <div className="space-y-3">
+                {alerts.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500 text-sm">No active alerts.</div>
+                ) : (
+                  alerts.map(alert => (
+                    <div key={alert.id} className={cn("flex items-center justify-between p-3 border rounded-xl", alert.isTriggered ? "bg-gray-50 border-gray-200 opacity-60" : "border-gray-100")}>
+                      <div className="flex items-center gap-3">
+                        <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold uppercase rounded-sm">
+                          {alert.assetType}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700">
+                          {alert.condition === 'above' ? 'Above' : 'Below'} ₹{alert.targetPrice.toLocaleString('en-IN')}
+                        </span>
+                        {alert.isTriggered && <span className="text-xs text-rose-500 font-medium">Triggered</span>}
+                      </div>
+                      <button 
+                        onClick={() => handleDeleteAlert(alert.id)}
+                        className="text-gray-400 hover:text-rose-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 

@@ -48,12 +48,32 @@ const investmentSchema = new mongoose.Schema({
 
 const Investment = mongoose.model('Investment', investmentSchema);
 
+const alertSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  assetType: { type: String, required: true }, // 'gold', 'silver', 'crypto'
+  targetPrice: { type: Number, required: true },
+  condition: { type: String, required: true }, // 'above' or 'below'
+  isTriggered: { type: Boolean, default: false },
+}, { timestamps: true });
+
+const Alert = mongoose.model('Alert', alertSchema);
+
+const notificationSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  message: { type: String, required: true },
+  read: { type: Boolean, default: false },
+}, { timestamps: true });
+
+const Notification = mongoose.model('Notification', notificationSchema);
+
 // In-memory fallback storage
 let inMemoryUsers: any[] = [];
 let inMemoryInvestments = [
   { id: '1', userId: 'default', assetType: 'gold', name: '10g Gold Coin (24K)', quantity: 10, purchasePrice: 6200.00, purchaseDate: '2025-11-15' },
   { id: '2', userId: 'default', assetType: 'gold', name: 'Gold Bar (1oz)', quantity: 31.1, purchasePrice: 6000.00, purchaseDate: '2025-08-01' },
 ];
+let inMemoryAlerts: any[] = [];
+let inMemoryNotifications: any[] = [];
 
 // Auth middleware
 const authMiddleware = (req: any, res: any, next: any) => {
@@ -81,6 +101,54 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // 1 Troy Ounce = 31.1034768 grams
 const TROY_OUNCE_TO_GRAMS = 31.1034768;
+
+async function checkAlerts(prices: any) {
+  try {
+    let alertsToCheck = [];
+    if (!isMongoConnected) {
+      alertsToCheck = inMemoryAlerts.filter(a => !a.isTriggered);
+    } else {
+      alertsToCheck = await Alert.find({ isTriggered: false });
+    }
+
+    for (const alert of alertsToCheck) {
+      const currentPrice = prices[alert.assetType]?.currentPrice;
+      if (!currentPrice) continue;
+
+      let triggered = false;
+      if (alert.condition === 'above' && currentPrice >= alert.targetPrice) {
+        triggered = true;
+      } else if (alert.condition === 'below' && currentPrice <= alert.targetPrice) {
+        triggered = true;
+      }
+
+      if (triggered) {
+        const message = `Price Alert: ${alert.assetType.toUpperCase()} has gone ${alert.condition} ₹${alert.targetPrice} (Current: ₹${currentPrice})`;
+        
+        if (!isMongoConnected) {
+          alert.isTriggered = true;
+          inMemoryNotifications.unshift({
+            id: Date.now().toString() + Math.random(),
+            userId: alert.userId,
+            message,
+            read: false,
+            createdAt: new Date().toISOString()
+          });
+        } else {
+          alert.isTriggered = true;
+          await alert.save();
+          await Notification.create({
+            userId: alert.userId,
+            message,
+            read: false
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error checking alerts:", error);
+  }
+}
 
 async function fetchAssetPrices() {
   try {
@@ -167,6 +235,9 @@ async function fetchAssetPrices() {
       crypto: { currentPrice: Number(btcPriceInr.toFixed(2)), history: btcHistory }
     };
     lastFetchTime = now;
+
+    // Check alerts asynchronously
+    checkAlerts(cachedAssetData);
 
     return cachedAssetData;
   } catch (error: any) {
@@ -336,6 +407,112 @@ async function startServer() {
     } catch (error) {
       console.error("Error deleting investment:", error);
       res.status(500).json({ error: "Failed to delete investment" });
+    }
+  });
+
+  // --- Alerts API ---
+  app.get("/api/alerts", authMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      if (!isMongoConnected) {
+        return res.json(inMemoryAlerts.filter(a => a.userId === userId));
+      }
+      const alerts = await Alert.find({ userId }).sort({ createdAt: -1 });
+      res.json(alerts.map(a => ({
+        id: a._id.toString(),
+        assetType: a.assetType,
+        targetPrice: a.targetPrice,
+        condition: a.condition,
+        isTriggered: a.isTriggered
+      })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch alerts" });
+    }
+  });
+
+  app.post("/api/alerts", authMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { assetType, targetPrice, condition } = req.body;
+      
+      if (!isMongoConnected) {
+        const newAlert = {
+          id: Date.now().toString(),
+          userId,
+          assetType,
+          targetPrice,
+          condition,
+          isTriggered: false
+        };
+        inMemoryAlerts.unshift(newAlert);
+        return res.status(201).json(newAlert);
+      }
+
+      const alert = new Alert({ userId, assetType, targetPrice, condition });
+      await alert.save();
+      res.status(201).json({
+        id: alert._id.toString(),
+        assetType: alert.assetType,
+        targetPrice: alert.targetPrice,
+        condition: alert.condition,
+        isTriggered: alert.isTriggered
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create alert" });
+    }
+  });
+
+  app.delete("/api/alerts/:id", authMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      
+      if (!isMongoConnected) {
+        inMemoryAlerts = inMemoryAlerts.filter(a => a.id !== id || a.userId !== userId);
+        return res.status(200).json({ message: "Alert deleted" });
+      }
+
+      await Alert.findOneAndDelete({ _id: id, userId });
+      res.status(200).json({ message: "Alert deleted" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete alert" });
+    }
+  });
+
+  // --- Notifications API ---
+  app.get("/api/notifications", authMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      if (!isMongoConnected) {
+        return res.json(inMemoryNotifications.filter(n => n.userId === userId));
+      }
+      const notifications = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(20);
+      res.json(notifications.map(n => ({
+        id: n._id.toString(),
+        message: n.message,
+        read: n.read,
+        createdAt: n.createdAt
+      })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.put("/api/notifications/:id/read", authMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      
+      if (!isMongoConnected) {
+        const notif = inMemoryNotifications.find(n => n.id === id && n.userId === userId);
+        if (notif) notif.read = true;
+        return res.status(200).json({ message: "Marked as read" });
+      }
+
+      await Notification.findOneAndUpdate({ _id: id, userId }, { read: true });
+      res.status(200).json({ message: "Marked as read" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update notification" });
     }
   });
 
