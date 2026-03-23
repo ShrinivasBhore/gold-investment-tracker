@@ -176,8 +176,9 @@ async function fetchAssetPrices() {
   }
 }
 
-// Initial fetch
+// Initial fetch and auto-refresh
 fetchAssetPrices();
+setInterval(fetchAssetPrices, CACHE_DURATION);
 
 async function startServer() {
   const app = express();
