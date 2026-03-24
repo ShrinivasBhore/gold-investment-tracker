@@ -713,9 +713,13 @@ export default function App() {
                     <AreaChart data={activeChartData.history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.3}/>
+                          <stop offset="5%" stopColor="#fbbf24" stopOpacity={isDarkMode ? 0.5 : 0.4}/>
+                          <stop offset="50%" stopColor="#fbbf24" stopOpacity={isDarkMode ? 0.2 : 0.15}/>
                           <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
                         </linearGradient>
+                        <filter id="shadow" height="200%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#fbbf24" floodOpacity={isDarkMode ? "0.4" : "0.2"} />
+                        </filter>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#374151" : "#f0f0f0"} />
                       <XAxis 
@@ -750,6 +754,11 @@ export default function App() {
                         strokeWidth={3}
                         fillOpacity={1} 
                         fill="url(#colorPrice)" 
+                        filter="url(#shadow)"
+                        activeDot={{ r: 6, fill: '#fbbf24', stroke: isDarkMode ? '#1f2937' : '#ffffff', strokeWidth: 3 }}
+                        isAnimationActive={true}
+                        animationDuration={1500}
+                        animationEasing="ease-in-out"
                       />
                     </AreaChart>
                   </ResponsiveContainer>
